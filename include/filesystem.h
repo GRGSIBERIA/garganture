@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <stdio.h>
+#include <vector>
 
 namespace ggtr
 {
@@ -42,6 +43,10 @@ namespace ggtr
 		void _ExpandRegion(const int64_t size);
 		void _ExpandBuffer(const int64_t size);
 
+		const FileInfo _InsertSingle(const char * const binary, const int64_t size);
+
+		std::vector<FileInfo> _InsertMulti(const char ** const binaries, const int64_t sizes, const size_t numof_insertion);
+
 	public:
 		FileSystem(const char * const dbpath, const int64_t allocation);
 
@@ -49,7 +54,15 @@ namespace ggtr
 
 		~FileSystem();
 
+		/**
+		* 単一ファイルをデータベースに登録する
+		*/
 		const FileInfo Insert(const char * const binary, const int64_t size);
+
+		/**
+		* 複数ファイルをデータベースに登録する
+		*/
+		std::vector<FileInfo> Insert(const char ** const binaries, const int64_t * const sizes, const size_t numof_insertion);
 
 		/**
 		* データベースを移動する

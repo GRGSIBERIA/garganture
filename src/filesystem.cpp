@@ -66,25 +66,12 @@ ggtr::FileSystem::~FileSystem()
 
 const FileInfo ggtr::FileSystem::Insert(const char * const binary, const int64_t size)
 {
-	FileInfo file;
+	return _InsertSingle(binary, size);
+}
 
-	fopen_s(&_fp, _dbpath.c_str(), "ab");
-
-	// 領域が不足しそうだったら追加で領域を確保する
-	_ExpandRegion(size);
-	_ExpandBuffer(size);
-
-	// ファイルに書き込み
-	_fseeki64(_fp, _offset, SEEK_SET);
-	fwrite(binary, size, 1, _fp);
-
-	file.offset = _offset;	// 位置をずらす前に記録
-	file.size = size;
-	_offset += size;		// サイズを変更
-
-	fclose(_fp);
-
-	return file;
+std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, const int64_t * const sizes, const size_t numof_insertion)
+{
+	return std::vector<FileInfo>();
 }
 
 void FileSystem::MoveDatabase(const std::string & todbpath)
@@ -140,6 +127,35 @@ void ggtr::FileSystem::_ExpandBuffer(const int64_t size)
 		_buffer = malloc(_bufsize);
 		setvbuf(_fp, (char*)_buffer, _IOFBF, _bufsize);
 	}
+}
+
+// 単一のファイルを扱うときの関数、Insertで名前を一本化するので……
+const FileInfo ggtr::FileSystem::_InsertSingle(const char * const binary, const int64_t size)
+{
+	FileInfo file;
+
+	fopen_s(&_fp, _dbpath.c_str(), "ab");
+
+	// 領域が不足しそうだったら追加で領域を確保する
+	_ExpandRegion(size);
+	_ExpandBuffer(size);
+
+	// ファイルに書き込み
+	_fseeki64(_fp, _offset, SEEK_SET);
+	fwrite(binary, size, 1, _fp);
+
+	file.offset = _offset;	// 位置をずらす前に記録
+	file.size = size;
+	_offset += size;		// サイズを変更
+
+	fclose(_fp);
+
+	return file;
+}
+
+std::vector<FileInfo> ggtr::FileSystem::_InsertMulti(const char ** const binaries, const int64_t sizes, const size_t numof_insertion)
+{
+	return _InsertMulti(binaries, sizes, numof_insertion);
 }
 
 ggtr::FileInfo::FileInfo()
