@@ -11,6 +11,10 @@ namespace ggtr
 	{
 		int64_t offset;		//!< 画像ファイルの位置
 		int64_t size;		//!< 画像ファイルの容量
+
+		FileInfo();
+		FileInfo(const int64_t offset, const int64_t size);
+		FileInfo(const FileInfo & src);
 	};
 
 	/**
@@ -24,27 +28,28 @@ namespace ggtr
 	class FileSystem
 	{
 		std::string _dbpath;	//!< データベースのパス
-		int64_t _size;			//!< 内部データのサイズ
-		int64_t _total;			//!< ファイル全体の容量
+		int64_t _offset;		//!< 内部データ末尾の位置
+		int64_t _region;		//!< ファイル全体の容量
 		int64_t _allocation;	//!< 確保サイズ
+
 		FILE* _fp;				//!< ファイルポインタちゃん
+		void* _buffer;			//!< 読み書きバッファ
+		int32_t _bufsize;		//!< バッファの容量
 
 	private:
 		void _PreOpenDB(const char * const dbpath, FILE * fp);
 		void _MoveDatabase(const char * const todbpath);
+		void _ExpandRegion(const int64_t size);
+		void _ExpandBuffer(const int64_t size);
 
 	public:
-		FileSystem(const char * const dbpath, int64_t allocation);
+		FileSystem(const char * const dbpath, const int64_t allocation);
 
-		FileSystem(const std::string & dbpath, int64_t allocation);
+		FileSystem(const std::string & dbpath, const int64_t allocation);
 
-		const void * const Query(int64_t offset, int64_t size);
+		~FileSystem();
 
-		const void * const Query(const FileInfo & fileinfo);
-
-		const FileInfo Insert(const char * const path);
-
-		const FileInfo Insert(const std::string & path);
+		const FileInfo Insert(const char * const binary, const int64_t size);
 
 		/**
 		* データベースを移動する
@@ -62,5 +67,6 @@ namespace ggtr
 		* データベースのパスを返す
 		*/
 		const std::string & dbpath() const { return _dbpath; }
+
 	};
 }

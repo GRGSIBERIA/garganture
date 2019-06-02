@@ -2,23 +2,24 @@
 #include "filesystem\fileutil.h"
 using namespace ggtr;
 
+// 初期化時にファイルデータベースを開いて中身のデータを抜いてくる
 void FileSystem::_PreOpenDB(const char * const dbpath, FILE * fp)
 {
-	const int64_t zero = 0;
+	const char zero = 0;
 	const char header[4] = { 'g', 'g', 't', 'r' };
 	
-	_size = 0;
+	_offset = 0;
 
 	if (!file::Exists(dbpath))
 	{
 		// ファイルが存在しない場合、新たにファイルを作成する
 		fopen_s(&fp, dbpath, "rb");
 		fwrite(header, 1, 4, fp);
-		fwrite(&_size, sizeof(int64_t), 1, fp);
-		fwrite(&zero, sizeof(int64_t), _allocation, fp);	// 領域を予約する
+		fwrite(&_offset, sizeof(int64_t), 1, fp);
+		fwrite(&zero, sizeof(char), _allocation, fp);	// 領域を予約する
 
-		_size = 4 + sizeof(int64_t);
-		_total = _ftelli64(fp);
+		_offset = 4 + sizeof(int64_t);
+		_region = _ftelli64(fp);
 	}
 	else
 	{
@@ -38,23 +39,52 @@ void FileSystem::_PreOpenDB(const char * const dbpath, FILE * fp)
 			}
 		}
 
-		fread_s(&_size, sizeof(int64_t), sizeof(int64_t), 1, fp);
-		_total = _fseeki64(fp, 0, SEEK_END);
+		fread_s(&_offset, sizeof(int64_t), sizeof(int64_t), 1, fp);
+		_region = _fseeki64(fp, 0, SEEK_END);
 	}
 
 	fclose(fp);
 }
 
-FileSystem::FileSystem(const char * const dbpath, int64_t allocation)
-	: _dbpath(dbpath), _allocation(allocation)
+FileSystem::FileSystem(const char * const dbpath, const int64_t allocation)
+	: _dbpath(dbpath), _allocation(allocation), _bufsize(0), _buffer(nullptr)
 {
 	_PreOpenDB(_dbpath.c_str(), _fp);
 }
 
-FileSystem::FileSystem(const std::string & dbpath, int64_t allocation)
-	: _dbpath(dbpath), _allocation(allocation)
+FileSystem::FileSystem(const std::string & dbpath, const int64_t allocation)
+	: _dbpath(dbpath), _allocation(allocation), _bufsize(0), _buffer(nullptr)
 {
 	_PreOpenDB(_dbpath.c_str(), _fp);
+}
+
+ggtr::FileSystem::~FileSystem()
+{
+	if (_buffer != nullptr)
+		free(_buffer);
+}
+
+const FileInfo ggtr::FileSystem::Insert(const char * const binary, const int64_t size)
+{
+	FileInfo file;
+
+	fopen_s(&_fp, _dbpath.c_str(), "ab");
+
+	// 領域が不足しそうだったら追加で領域を確保する
+	_ExpandRegion(size);
+	_ExpandBuffer(size);
+
+	// ファイルに書き込み
+	_fseeki64(_fp, _offset, SEEK_SET);
+	fwrite(binary, size, 1, _fp);
+
+	file.offset = _offset;	// 位置をずらす前に記録
+	file.size = size;
+	_offset += size;		// サイズを変更
+
+	fclose(_fp);
+
+	return file;
 }
 
 void FileSystem::MoveDatabase(const std::string & todbpath)
@@ -86,4 +116,43 @@ void FileSystem::_MoveDatabase(const char * const todbpath)
 	// 移動させたのでパスを移し替える
 	file::Move(_dbpath.c_str(), todbpath);
 	_dbpath = std::string(todbpath);
+}
+
+// 領域が不足していれば拡張する
+void ggtr::FileSystem::_ExpandRegion(const int64_t size)
+{
+	if (_offset + size > _region)
+	{
+		const char zero = 0;
+		_fseeki64(_fp, 0, SEEK_END);
+		fwrite(&zero, sizeof(char), _allocation, _fp);
+	}
+}
+
+// バッファの領域が不足しているなら
+void ggtr::FileSystem::_ExpandBuffer(const int64_t size)
+{
+	if (_bufsize < size)
+	{
+		_bufsize = size;
+		if (_buffer != nullptr)
+			free(_buffer);
+		_buffer = malloc(_bufsize);
+		setvbuf(_fp, (char*)_buffer, _IOFBF, _bufsize);
+	}
+}
+
+ggtr::FileInfo::FileInfo()
+	: offset(offset), size(size)
+{
+}
+
+ggtr::FileInfo::FileInfo(const int64_t offset, const int64_t size)
+	: offset(offset), size(size)
+{
+}
+
+ggtr::FileInfo::FileInfo(const FileInfo & src)
+	: offset(src.offset), size(src.size)
+{
 }
