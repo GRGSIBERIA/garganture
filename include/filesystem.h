@@ -19,6 +19,51 @@ namespace ggtr
 	};
 
 	/**
+	* ファイルのバイナリを扱う型
+	*/
+	class FileBinary
+	{
+		char * _data;	//!< ファイルのバイナリ本体
+
+	public:
+		/**
+		* バイナリ本体を返す
+		*/
+		const char * const ptr() const;
+
+		/**
+		* リソースを解放する
+		*/
+		void Dispose();
+	};
+
+	/**
+	* ファイルのバイナリのリスト
+	* 明示的にDisposeしなければリソースは解放されない
+	*/
+	class FileBinaryList
+	{
+		int64_t _length;		//!< ファイルの長さ
+		FileBinary * _binaries;	//!< ファイルのポインタ
+
+	public:
+		/**
+		* リソースを解放する
+		*/
+		void Dispose();
+
+		/**
+		* バイナリを返す
+		*/
+		const char * const at(const int64_t id) const;
+
+		/**
+		* 配列の長さを返す
+		*/
+		const int64_t length() const;
+	};
+
+	/**
 	* 無効なファイルヘッダがあるときに送出
 	*/
 	class InvalidFileHeaderException : public std::exception {};
@@ -57,6 +102,20 @@ namespace ggtr
 		FileSystem(const std::string & dbpath, const int64_t allocation);
 
 		~FileSystem();
+
+		/***********************************************************************
+		* 読み込み周りの処理
+		************************************************************************/
+
+		//Binary Query(const FileInfo& info);
+
+		//FileBinaryList Query(const FileInfo * const infos);
+
+		//FileBinaryList Query(const std::vector<FileInfo> & infos);
+
+		/***********************************************************************
+		* 書き込み周りの処理
+		************************************************************************/
 
 		/**
 		* 単一ファイルをデータベースに登録する

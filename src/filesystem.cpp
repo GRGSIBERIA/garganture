@@ -1,5 +1,6 @@
 ﻿#include "filesystem.h"
 #include "filesystem\fileutil.h"
+#include <exception>
 using namespace ggtr;
 
 // 初期化時にファイルデータベースを開いて中身のデータを抜いてくる
@@ -63,6 +64,8 @@ ggtr::FileSystem::~FileSystem()
 {
 	if (_buffer != nullptr)
 		free(_buffer);
+	if (_tempbuf != nullptr)
+		free(_tempbuf);
 }
 
 const FileInfo ggtr::FileSystem::Insert(const char * const binary, const int64_t size)
@@ -158,7 +161,7 @@ void ggtr::FileSystem::_ExpandRegion(const int64_t size)
 	}
 }
 
-// バッファの領域が不足しているなら
+// バッファの領域が不足しているなら領域を広げる
 void ggtr::FileSystem::_ExpandBuffer(const int64_t size)
 {
 	if (_bufsize < size)
@@ -227,4 +230,41 @@ ggtr::FileInfo::FileInfo(const int64_t offset, const int64_t size)
 ggtr::FileInfo::FileInfo(const FileInfo & src)
 	: offset(src.offset), size(src.size)
 {
+}
+
+void ggtr::FileBinaryList::Dispose()
+{
+	if (_binaries != nullptr)
+	{
+		for (uint64_t i = 0; i < _length; ++i)
+			_binaries[i].Dispose();
+		free(_binaries);
+		_binaries = nullptr;
+	}
+}
+
+const char * const ggtr::FileBinaryList::at(const int64_t id) const
+{
+	if (id < _length)
+		return _binaries[id].ptr();
+	throw new std::exception("Index out of range id < _length");
+}
+
+const int64_t ggtr::FileBinaryList::length() const
+{
+	return _length;
+}
+
+const char * const ggtr::FileBinary::ptr() const
+{
+	return _data;
+}
+
+void ggtr::FileBinary::Dispose()
+{
+	if (_data != nullptr)
+	{
+		free(_data);
+		_data = nullptr;
+	}
 }
