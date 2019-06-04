@@ -73,10 +73,12 @@ const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
 {
 	if (file::Exists(_dbpath.c_str()))
 	{
+		// 開いて
 		fopen_s(&_fp, _dbpath.c_str(), "rb");
 		setvbuf(_fp, (char *)_buffer, _IOFBF, _bufsize);
 		char * memory = (char*)malloc(info.size);	// FileBinary側でDispose呼び出さないと解放されない
 
+		// 移動して、読み込む
 		_fseeki64(_fp, info.offset, SEEK_SET);
 		fread_s(memory, info.size, info.size, 1, _fp);
 
@@ -119,7 +121,7 @@ const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 			addresses.push_back(&memory[count]);
 			count += infos[i].size;
 		}
-
+		
 		return FileBinaryList(memory, addresses, infos, infos.size(), total);
 	}
 
