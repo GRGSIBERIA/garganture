@@ -2,6 +2,7 @@
 #include <string>
 #include <stdio.h>
 #include <vector>
+#include <exception>
 
 namespace ggtr
 {
@@ -16,6 +17,8 @@ namespace ggtr
 		FileInfo();
 		FileInfo(const int64_t offset, const int64_t size);
 		FileInfo(const FileInfo & src);
+
+		bool operator<(const FileInfo & info) const;
 	};
 
 	/**
@@ -23,7 +26,9 @@ namespace ggtr
 	*/
 	class FileBinary
 	{
-		char * _data;	//!< ファイルのバイナリ本体
+		int64_t _size;		//!< ファイルの容量
+		char * _bin;		//!< ファイルのバイナリ本体
+		bool _disposable;	//!< freeできるポインタか？
 
 	public:
 		/**
@@ -32,9 +37,21 @@ namespace ggtr
 		const char * const ptr() const;
 
 		/**
+		* ファイルの容量を返す
+		*/
+		const int64_t size() const;
+
+		/**
 		* リソースを解放する
 		*/
 		void Dispose();
+
+		/**
+		* 単にアドレスを保管する
+		*/
+		FileBinary(char * bin, const int64_t binsize, const bool disposable);
+
+		FileBinary();
 	};
 
 	/**
@@ -43,8 +60,10 @@ namespace ggtr
 	*/
 	class FileBinaryList
 	{
-		int64_t _length;		//!< ファイルの長さ
-		FileBinary * _binaries;	//!< ファイルのポインタ
+		char * _top_address;	//!< バイナリの先頭アドレス
+		int64_t _length;		//!< 要素数
+		int64_t _total_size;	//!< 全体の長さ
+		std::vector<FileBinary> _binaries;	//!< ファイルのポインタ
 
 	public:
 		/**
@@ -53,20 +72,32 @@ namespace ggtr
 		void Dispose();
 
 		/**
-		* バイナリを返す
+		* 配列から要素を取ってくる
 		*/
-		const char * const at(const int64_t id) const;
+		const FileBinary & operator[](const int64_t id) const;
 
 		/**
 		* 配列の長さを返す
 		*/
 		const int64_t length() const;
+
+		FileBinaryList(char * memory, const std::vector<char *> & addresses, const std::vector<FileInfo> & infos, const int64_t length, const int64_t memory_size);
 	};
 
 	/**
 	* 無効なファイルヘッダがあるときに送出
 	*/
 	class InvalidFileHeaderException : public std::exception {};
+
+	/**
+	* ファイルが存在しない
+	*/
+	class DatabaseFileNotFoundException : public std::exception 
+	{
+	public:
+		DatabaseFileNotFoundException(const std::string & message)
+			: exception(message.c_str()) {}
+	};
 
 	/**
 	* ファイルデータベースシステム
@@ -81,8 +112,8 @@ namespace ggtr
 		FILE * _fp;				//!< ファイルポインタちゃん
 		void * _buffer;			//!< 読み書きバッファ
 		int64_t _bufsize;		//!< バッファの容量
-		void * _tempbuf;		//!< 複数ファイルをまとめるための一時領域
-		int64_t _tempsize;		//!< 複数ファイルバッファの容量
+		void * _tempbuf;		//!< 書き込み時に複数ファイルをまとめるための一時領域
+		int64_t _tempsize;		//!< 書き込み時に複数ファイルバッファの容量
 
 	private:
 		void _PreOpenDB(const char * const dbpath);
@@ -106,12 +137,21 @@ namespace ggtr
 		/***********************************************************************
 		* 読み込み周りの処理
 		************************************************************************/
-
-		//Binary Query(const FileInfo& info);
+		/**
+		* @return ファイルのバイナリ
+		* @attention 明示的にDisposeを呼び出さないと領域が開放されない
+		*/
+		const FileBinary Query(const FileInfo& info);
 
 		//FileBinaryList Query(const FileInfo * const infos);
 
-		//FileBinaryList Query(const std::vector<FileInfo> & infos);
+		/**
+		* @return ファイルのバイナリの配列
+		* @attention
+		*	明示的にFileBinaryListのインスタンスからDisposeを呼び出さないと領域が解放されない
+		*	また、個別のインスタンスのDisposeを呼び出しても領域は解放しない
+		*/
+		const FileBinaryList Query(const std::vector<FileInfo> & infos);
 
 		/***********************************************************************
 		* 書き込み周りの処理

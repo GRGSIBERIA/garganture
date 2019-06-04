@@ -1,6 +1,7 @@
 ﻿#include "filesystem.h"
 #include "filesystem\fileutil.h"
-#include <exception>
+#include <algorithm>
+#include <numeric>
 using namespace ggtr;
 
 // 初期化時にファイルデータベースを開いて中身のデータを抜いてくる
@@ -68,6 +69,63 @@ ggtr::FileSystem::~FileSystem()
 		free(_tempbuf);
 }
 
+const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
+{
+	if (file::Exists(_dbpath.c_str()))
+	{
+		fopen_s(&_fp, _dbpath.c_str(), "rb");
+		setvbuf(_fp, (char *)_buffer, _IOFBF, _bufsize);
+		char * memory = (char*)malloc(info.size);	// FileBinary側でDispose呼び出さないと解放されない
+
+		_fseeki64(_fp, info.offset, SEEK_SET);
+		fread_s(memory, info.size, info.size, 1, _fp);
+
+		return FileBinary(memory, info.size, true);
+	}
+
+	// ファイルが存在しない場合は例外を送る
+	throw new DatabaseFileNotFoundException(_dbpath);
+}
+
+const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
+{
+	if (file::Exists(_dbpath.c_str()))
+	{
+		// infosをoffsetの昇順でソートする
+		std::sort(infos.begin(), infos.end());
+
+		// 合計サイズを求める
+		int64_t total = 0;
+		for (int i = 0; i < infos.size(); ++i)
+			total += infos[i].size;
+
+		// バッファの伸張
+		for (int i = 0; i < infos.size(); ++i)
+			_ExpandBuffer(infos[i].size);
+
+		// ファイルを開く
+		fopen_s(&_fp, _dbpath.c_str(), "rb");
+		setvbuf(_fp, (char *)_buffer, _IOFBF, _bufsize);
+		char * memory = (char *)malloc(total);	// この領域はFileBinaryListのDisposeが呼ばれない限り解放されない
+		
+		// 確保した領域にファイルを読み込んでいく
+		int64_t count = 0;
+		std::vector<char *> addresses;
+		addresses.reserve(infos.size());
+		for (int i = 0; i < infos.size(); ++i)
+		{
+			_fseeki64(_fp, infos[i].offset, SEEK_SET);						// 移動して
+			fread_s(&memory[count], total - count, infos[i].size, 1, _fp);	// 読み込む
+			addresses.push_back(&memory[count]);
+			count += infos[i].size;
+		}
+
+		return FileBinaryList(memory, addresses, infos, infos.size(), total);
+	}
+
+	throw new DatabaseFileNotFoundException(_dbpath);
+}
+
 const FileInfo ggtr::FileSystem::Insert(const char * const binary, const int64_t size)
 {
 	return _InsertSingle(binary, size);
@@ -80,8 +138,6 @@ std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, con
 
 	// 合計サイズを求める
 	int64_t total = 0;
-	for (size_t i = 0; i < numof_insertion; ++i)
-		total += sizes[i];
 
 	// ファイルの配列を用意する
 	for (size_t i = 0; i < numof_insertion; ++i)
@@ -232,21 +288,24 @@ ggtr::FileInfo::FileInfo(const FileInfo & src)
 {
 }
 
+bool ggtr::FileInfo::operator<(const FileInfo & info) const
+{
+	return offset < info.offset;
+}
+
 void ggtr::FileBinaryList::Dispose()
 {
-	if (_binaries != nullptr)
+	if (_top_address != nullptr)
 	{
-		for (uint64_t i = 0; i < _length; ++i)
-			_binaries[i].Dispose();
-		free(_binaries);
-		_binaries = nullptr;
+		free(_top_address);
+		_top_address = nullptr;
 	}
 }
 
-const char * const ggtr::FileBinaryList::at(const int64_t id) const
+const FileBinary & ggtr::FileBinaryList::operator[](const int64_t id) const
 {
 	if (id < _length)
-		return _binaries[id].ptr();
+		return _binaries[id];
 	throw new std::exception("Index out of range id < _length");
 }
 
@@ -255,16 +314,42 @@ const int64_t ggtr::FileBinaryList::length() const
 	return _length;
 }
 
+ggtr::FileBinaryList::FileBinaryList(char * memory, const std::vector<char *> & addresses, const std::vector<FileInfo> & infos, const int64_t length, const int64_t memory_size)
+	: _top_address(memory), _length(length), _total_size(memory_size), _binaries()
+{
+	// リストの構築
+	_binaries.reserve(_length);
+	for (int i = 0; i < addresses.size(); ++i)
+	{
+		_binaries.emplace_back(addresses[i], infos[i].size, false);
+	}
+}
+
 const char * const ggtr::FileBinary::ptr() const
 {
-	return _data;
+	return _bin;
+}
+
+const int64_t ggtr::FileBinary::size() const
+{
+	return _size;
 }
 
 void ggtr::FileBinary::Dispose()
 {
-	if (_data != nullptr)
+	if (_bin != nullptr && _disposable)
 	{
-		free(_data);
-		_data = nullptr;
+		free(_bin);
+		_bin = nullptr;
 	}
+}
+
+ggtr::FileBinary::FileBinary(char * bin, const int64_t binsize, const bool disposable)
+	: _bin(bin), _size(binsize)
+{
+}
+
+ggtr::FileBinary::FileBinary()
+	: _size(0), _bin(nullptr), _disposable(false)
+{
 }
