@@ -105,12 +105,17 @@ const FileBinaryList ggtr::FileSystem::Query(const FileInfo * const infos, const
 	return Query(vinfos);
 }
 
+bool SortComp(const FileInfo & a , const FileInfo & b)
+{
+	return a.offset < b.offset;
+}
+
 const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 {
 	if (file::Exists(_dbpath.c_str()))
 	{
 		// infosをoffsetの昇順でソートする
-		std::sort(infos.begin(), infos.end());
+		std::sort(infos.begin(), infos.end(), SortComp);
 
 		// 合計サイズを求める
 		int64_t total = 0;
@@ -306,11 +311,6 @@ const FileInfo ggtr::FileSystem::_InsertSingle(const char * const binary, const 
 	return file;
 }
 
-std::vector<FileInfo> ggtr::FileSystem::_InsertMulti(const char ** const binaries, const int64_t sizes, const size_t numof_insertion)
-{
-	return _InsertMulti(binaries, sizes, numof_insertion);
-}
-
 ggtr::FileInfo::FileInfo()
 	: offset(offset), size(size)
 {
@@ -331,11 +331,9 @@ bool ggtr::FileInfo::operator<(const FileInfo & info) const
 	return offset < info.offset;
 }
 
-const FileInfo ggtr::FileInfo::operator=(const FileInfo & src)
+FileInfo ggtr::FileInfo::operator=(const FileInfo & src) const
 {
-	offset = src.offset;
-	size = src.size;
-	return *this;
+	return FileInfo(src.offset, src.size);
 }
 
 void ggtr::FileBinaryList::Dispose()

@@ -18,9 +18,10 @@ namespace ggtr
 		FileInfo(const int64_t offset, const int64_t size);
 		FileInfo(const FileInfo & src);
 
+		// ソートするときコンパイルに失敗する
 		bool operator<(const FileInfo & info) const;
 
-		const FileInfo operator=(const FileInfo & src);
+		FileInfo operator =(const FileInfo & src) const;
 	};
 
 	/**
@@ -139,7 +140,6 @@ namespace ggtr
 		void _ExpandTemp(const int64_t size);
 		int64_t _AllocateBuffer(void * buffer, const int64_t size);
 		const FileInfo _InsertSingle(const char * const binary, const int64_t size);
-		std::vector<FileInfo> _InsertMulti(const char ** const binaries, const int64_t sizes, const size_t numof_insertion);
 
 	public:
 		/**
