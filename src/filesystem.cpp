@@ -17,7 +17,7 @@ void FileSystem::_PreOpenDB()
 		// ファイルが存在しない場合、新たにファイルを作成する
 		_FileOpen("wb");
 
-		fwrite(header, 1, 4, _fp);
+		fwrite(header, sizeof(char), 4, _fp);
 		fwrite(&_offset, sizeof(int64_t), 1, _fp);
 		fwrite(&zero, sizeof(char), _allocation, _fp);	// 領域を予約する
 
@@ -234,6 +234,13 @@ void ggtr::FileSystem::_FileOpen(const char * const mode)
 void ggtr::FileSystem::_FileClose()
 {
 	fclose(_fp);
+
+	// ファイルのオフセットを書き込む
+	_FileOpen("ab");
+	_fseeki64(_fp, 4, SEEK_SET);
+	fwrite(&_offset, sizeof(int64_t), 1, _fp);
+	fclose(_fp);
+
 	_fp = nullptr;
 }
 
@@ -322,6 +329,13 @@ ggtr::FileInfo::FileInfo(const FileInfo & src)
 bool ggtr::FileInfo::operator<(const FileInfo & info) const
 {
 	return offset < info.offset;
+}
+
+const FileInfo ggtr::FileInfo::operator=(const FileInfo & src)
+{
+	offset = src.offset;
+	size = src.size;
+	return *this;
 }
 
 void ggtr::FileBinaryList::Dispose()

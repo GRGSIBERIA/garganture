@@ -19,6 +19,8 @@ namespace ggtr
 		FileInfo(const FileInfo & src);
 
 		bool operator<(const FileInfo & info) const;
+
+		const FileInfo operator=(const FileInfo & src);
 	};
 
 	/**
@@ -129,7 +131,7 @@ namespace ggtr
 		void _PreOpenDB();
 		void _MoveDatabase(const char * const todbpath);
 		void _FileOpen(const char * const mode);
-		void _FileClose();
+		void _FileClose();		// ファイルを閉じるときにoffsetを書き込む
 
 		// 書き込み周り
 		void _ExpandRegion(const int64_t size);
@@ -140,6 +142,10 @@ namespace ggtr
 		std::vector<FileInfo> _InsertMulti(const char ** const binaries, const int64_t sizes, const size_t numof_insertion);
 
 	public:
+		/**
+		* @param dbpath [in] データベースのパス
+		* @param allocation [in] データベースを拡張する単位, バイトなので256MB、512MBなど巨大なほうがいい
+		*/
 		FileSystem(const char * const dbpath, const int64_t allocation);
 
 		FileSystem(const std::string & dbpath, const int64_t allocation);
