@@ -100,6 +100,16 @@ namespace ggtr
 	};
 
 	/**
+	* データベースを開くときにエラーが出た
+	*/
+	class OpenDatabaseException : public std::exception
+	{
+	public:
+		OpenDatabaseException(const errno_t error, const char * mode)
+			: exception((std::string("Can't open database: ") + mode).c_str()) {}
+	};
+
+	/**
 	* ファイルデータベースシステム
 	*/
 	class FileSystem
@@ -116,8 +126,10 @@ namespace ggtr
 		int64_t _tempsize;		//!< 書き込み時に複数ファイルバッファの容量
 
 	private:
-		void _PreOpenDB(const char * const dbpath);
+		void _PreOpenDB();
 		void _MoveDatabase(const char * const todbpath);
+		void _FileOpen(const char * const mode);
+		void _FileClose();
 
 		// 書き込み周り
 		void _ExpandRegion(const int64_t size);
@@ -143,7 +155,7 @@ namespace ggtr
 		*/
 		const FileBinary Query(const FileInfo& info);
 
-		//FileBinaryList Query(const FileInfo * const infos);
+		const FileBinaryList Query(const FileInfo * const infos, const int64_t size);
 
 		/**
 		* @return ファイルのバイナリの配列
@@ -159,13 +171,19 @@ namespace ggtr
 
 		/**
 		* 単一ファイルをデータベースに登録する
+		* @return 書き込んだファイルの情報
 		*/
 		const FileInfo Insert(const char * const binary, const int64_t size);
 
 		/**
 		* 複数ファイルをデータベースに登録する
+		* @return 書き込んだファイルの情報
 		*/
 		std::vector<FileInfo> Insert(const char ** const binaries, const int64_t * const sizes, const size_t numof_insertion);
+
+		/***********************************************************************
+		* 予備的な処理
+		************************************************************************/
 
 		/**
 		* データベースを移動する
@@ -178,6 +196,10 @@ namespace ggtr
 		* 移動先にデータベースが存在する場合は.bakを付けて退避させる
 		*/
 		void MoveDatabase(const std::string & todbpath);
+
+		/***********************************************************************
+		* プロパティ関数
+		************************************************************************/
 
 		/**
 		* データベースのパスを返す

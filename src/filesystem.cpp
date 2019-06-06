@@ -5,17 +5,18 @@
 using namespace ggtr;
 
 // 初期化時にファイルデータベースを開いて中身のデータを抜いてくる
-void FileSystem::_PreOpenDB(const char * const dbpath)
+void FileSystem::_PreOpenDB()
 {
 	const char zero = 0;
 	const char header[4] = { 'g', 'g', 't', 'r' };
 	
 	_offset = 0;
 
-	if (!file::Exists(dbpath))
+	if (!file::Exists(_dbpath.c_str()))
 	{
 		// ファイルが存在しない場合、新たにファイルを作成する
-		fopen_s(&_fp, dbpath, "rb");
+		_FileOpen("wb");
+
 		fwrite(header, 1, 4, _fp);
 		fwrite(&_offset, sizeof(int64_t), 1, _fp);
 		fwrite(&zero, sizeof(char), _allocation, _fp);	// 領域を予約する
@@ -26,7 +27,7 @@ void FileSystem::_PreOpenDB(const char * const dbpath)
 	else
 	{
 		// ファイルが存在したらヘッダと容量を照合する
-		fopen_s(&_fp, dbpath, "rb");
+		_FileOpen("rb");
 
 		char comparison[4];
 		fread_s(comparison, 4, 1, 4, _fp);
@@ -36,7 +37,8 @@ void FileSystem::_PreOpenDB(const char * const dbpath)
 		{
 			if (header[i] != comparison[i])
 			{
-				fclose(_fp);		// 無効なファイルヘッダが来たので一旦ファイルを閉じてどうするか決める
+				// 無効なファイルヘッダが来たので一旦ファイルを閉じてどうするか決める
+				_FileClose();
 				throw new InvalidFileHeaderException();
 			}
 		}
@@ -45,20 +47,20 @@ void FileSystem::_PreOpenDB(const char * const dbpath)
 		_region = _fseeki64(_fp, 0, SEEK_END);
 	}
 
-	fclose(_fp);
-	_fp = nullptr;		// setvbufの判断を確実にするため、特に用がない限りはnullptrでゼロにする
+	// setvbufの判断を確実にするため、特に用がない限りはnullptrでゼロにする
+	_FileClose();
 }
 
 FileSystem::FileSystem(const char * const dbpath, const int64_t allocation)
 	: _dbpath(dbpath), _allocation(allocation), _bufsize(0), _buffer(nullptr), _tempsize(0), _tempbuf(nullptr)
 {
-	_PreOpenDB(_dbpath.c_str());
+	_PreOpenDB();
 }
 
 FileSystem::FileSystem(const std::string & dbpath, const int64_t allocation)
 	: _dbpath(dbpath), _allocation(allocation), _bufsize(0), _buffer(nullptr), _tempsize(0), _tempbuf(nullptr)
 {
-	_PreOpenDB(_dbpath.c_str());
+	_PreOpenDB();
 }
 
 ggtr::FileSystem::~FileSystem()
@@ -74,7 +76,7 @@ const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
 	if (file::Exists(_dbpath.c_str()))
 	{
 		// 開いて
-		fopen_s(&_fp, _dbpath.c_str(), "rb");
+		_FileOpen("rb");
 		setvbuf(_fp, (char *)_buffer, _IOFBF, _bufsize);
 		char * memory = (char*)malloc(info.size);	// FileBinary側でDispose呼び出さないと解放されない
 
@@ -82,11 +84,25 @@ const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
 		_fseeki64(_fp, info.offset, SEEK_SET);
 		fread_s(memory, info.size, info.size, 1, _fp);
 
+		_FileClose();
+
 		return FileBinary(memory, info.size, true);
 	}
 
 	// ファイルが存在しない場合は例外を送る
 	throw new DatabaseFileNotFoundException(_dbpath);
+}
+
+const FileBinaryList ggtr::FileSystem::Query(const FileInfo * const infos, const int64_t size)
+{
+	// 面倒なので内部的にstd::vector使おう
+	std::vector<FileInfo> vinfos;
+	vinfos.reserve(size);
+
+	for (int i = 0; i < size; ++i)
+		vinfos.push_back(infos[i]);
+
+	return Query(vinfos);
 }
 
 const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
@@ -106,7 +122,7 @@ const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 			_ExpandBuffer(infos[i].size);
 
 		// ファイルを開く
-		fopen_s(&_fp, _dbpath.c_str(), "rb");
+		_FileOpen("rb");
 		setvbuf(_fp, (char *)_buffer, _IOFBF, _bufsize);
 		char * memory = (char *)malloc(total);	// この領域はFileBinaryListのDisposeが呼ばれない限り解放されない
 		
@@ -122,6 +138,8 @@ const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 			count += infos[i].size;
 		}
 		
+		_FileClose();
+
 		return FileBinaryList(memory, addresses, infos, infos.size(), total);
 	}
 
@@ -165,13 +183,12 @@ std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, con
 	_offset += total;
 
 	// ファイルの書き込み
-	fopen_s(&_fp, _dbpath.c_str(), "ab");
+	_FileOpen("ab");
 	setvbuf(_fp, (char *)_buffer, _IOFBF, total);
 	_fseeki64(_fp, _offset, SEEK_SET);
 	fwrite(_tempbuf, total, 1, _fp);
 
-	fclose(_fp);
-	_fp = nullptr;
+	_FileClose();
 
 	return files;
 }
@@ -205,6 +222,19 @@ void FileSystem::_MoveDatabase(const char * const todbpath)
 	// 移動させたのでパスを移し替える
 	file::Move(_dbpath.c_str(), todbpath);
 	_dbpath = std::string(todbpath);
+}
+
+void ggtr::FileSystem::_FileOpen(const char * const mode)
+{
+	errno_t error = fopen_s(&_fp, _dbpath.c_str(), "rb");
+	if (error != 0)
+		throw new OpenDatabaseException(error, "rb");
+}
+
+void ggtr::FileSystem::_FileClose()
+{
+	fclose(_fp);
+	_fp = nullptr;
 }
 
 // 領域が不足していれば拡張する
@@ -250,7 +280,7 @@ const FileInfo ggtr::FileSystem::_InsertSingle(const char * const binary, const 
 {
 	FileInfo file;
 
-	fopen_s(&_fp, _dbpath.c_str(), "ab");
+	_FileOpen("ab");
 
 	// 領域が不足しそうだったら追加で領域を確保する
 	_ExpandRegion(size);
@@ -264,8 +294,7 @@ const FileInfo ggtr::FileSystem::_InsertSingle(const char * const binary, const 
 	file.size = size;
 	_offset += size;		// サイズを変更
 
-	fclose(_fp);
-	_fp = nullptr;
+	_FileClose();
 
 	return file;
 }
