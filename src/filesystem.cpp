@@ -71,7 +71,7 @@ ggtr::FileSystem::~FileSystem()
 		free(_tempbuf);
 }
 
-const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
+void * ggtr::FileSystem::Query(FileInfo & info)
 {
 	if (file::Exists(_dbpath.c_str()))
 	{
@@ -86,14 +86,17 @@ const FileBinary ggtr::FileSystem::Query(const FileInfo & info)
 
 		_FileClose();
 
-		return FileBinary(memory, info.size, true);
+		//return FileBinary(memory, info.size, true);
+		info.binary = memory;
+		info.mother_binary = memory;
+		return memory;
 	}
 
 	// ファイルが存在しない場合は例外を送る
 	throw new DatabaseFileNotFoundException(_dbpath);
 }
 
-const FileBinaryList ggtr::FileSystem::Query(const FileInfo * const infos, const int64_t size)
+void * ggtr::FileSystem::Query(const FileInfo * const infos, const int64_t size)
 {
 	// 面倒なので内部的にstd::vector使おう
 	std::vector<FileInfo> vinfos;
@@ -105,17 +108,22 @@ const FileBinaryList ggtr::FileSystem::Query(const FileInfo * const infos, const
 	return Query(vinfos);
 }
 
-bool SortComp(const FileInfo & a , const FileInfo & b)
+bool FileSystem::_SortOffset(const FileInfo & a , const FileInfo & b)
 {
 	return a.offset < b.offset;
 }
 
-const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
+bool FileSystem::_SortId(const FileInfo & a, const FileInfo & b)
+{
+	return a.id < b.id;
+}
+
+void * ggtr::FileSystem::Query(std::vector<FileInfo>& infos)
 {
 	if (file::Exists(_dbpath.c_str()))
 	{
 		// infosをoffsetの昇順でソートする
-		std::sort(infos.begin(), infos.end(), SortComp);
+		std::sort(infos.begin(), infos.end(), _SortOffset);
 
 		// 合計サイズを求める
 		int64_t total = 0;
@@ -133,19 +141,24 @@ const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 		
 		// 確保した領域にファイルを読み込んでいく
 		int64_t count = 0;
-		std::vector<char *> addresses;
-		addresses.reserve(infos.size());
 		for (int i = 0; i < infos.size(); ++i)
 		{
 			_fseeki64(_fp, infos[i].offset, SEEK_SET);						// 移動して
 			fread_s(&memory[count], total - count, infos[i].size, 1, _fp);	// 読み込む
-			addresses.push_back(&memory[count]);
+
+			infos[i].id = i;
+			infos[i].binary = &memory[count];
+			infos[i].mother_binary = memory;
+
 			count += infos[i].size;
 		}
 		
 		_FileClose();
 
-		return FileBinaryList(memory, addresses, infos, infos.size(), total);
+		// ファイルの順番でソート
+		std::sort(infos.begin(), infos.end(), _SortId);
+
+		return memory;
 	}
 
 	throw new DatabaseFileNotFoundException(_dbpath);
@@ -153,7 +166,25 @@ const FileBinaryList ggtr::FileSystem::Query(const std::vector<FileInfo>& infos)
 
 const FileInfo ggtr::FileSystem::Insert(const char * const binary, const int64_t size)
 {
-	return _InsertSingle(binary, size);
+	FileInfo file;
+
+	_FileOpen("ab");
+
+	// 領域が不足しそうだったら追加で領域を確保する
+	_ExpandRegion(size);
+	_ExpandBuffer(size);
+
+	// ファイルに書き込み
+	_fseeki64(_fp, _offset, SEEK_SET);
+	fwrite(binary, size, 1, _fp);
+
+	file.offset = _offset;	// 位置をずらす前に記録
+	file.size = size;
+	_offset += size;		// サイズを変更
+
+	_FileClose();
+
+	return file;
 }
 
 std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, const int64_t * const sizes, const size_t numof_insertion)
@@ -161,14 +192,12 @@ std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, con
 	auto files = std::vector<FileInfo>();
 	files.reserve(numof_insertion);
 
-	// 合計サイズを求める
+	// 合計サイズを求めつつ、ファイルの配列を用意する
 	int64_t total = 0;
-
-	// ファイルの配列を用意する
 	for (size_t i = 0; i < numof_insertion; ++i)
 	{
-		FileInfo file(_offset, sizes[i]);
-		files.emplace_back(_offset, sizes[i]);
+		files.emplace_back(i, _offset + total, sizes[i]);
+		total += sizes[i];
 	}
 
 	// 領域が足りないなら確保する
@@ -187,7 +216,7 @@ std::vector<FileInfo> ggtr::FileSystem::Insert(const char ** const binaries, con
 	}
 	_offset += total;
 
-	// ファイルの書き込み
+	// バッファからファイルへの書き込み
 	_FileOpen("ab");
 	setvbuf(_fp, (char *)_buffer, _IOFBF, total);
 	_fseeki64(_fp, _offset, SEEK_SET);
@@ -287,112 +316,48 @@ int64_t ggtr::FileSystem::_AllocateBuffer(void * buffer, const int64_t size)
 	return size;
 }
 
-// 単一のファイルを扱うときの関数、Insertで名前を一本化するので……
-const FileInfo ggtr::FileSystem::_InsertSingle(const char * const binary, const int64_t size)
-{
-	FileInfo file;
-
-	_FileOpen("ab");
-
-	// 領域が不足しそうだったら追加で領域を確保する
-	_ExpandRegion(size);
-	_ExpandBuffer(size);
-
-	// ファイルに書き込み
-	_fseeki64(_fp, _offset, SEEK_SET);
-	fwrite(binary, size, 1, _fp);
-
-	file.offset = _offset;	// 位置をずらす前に記録
-	file.size = size;
-	_offset += size;		// サイズを変更
-
-	_FileClose();
-
-	return file;
-}
-
 ggtr::FileInfo::FileInfo()
-	: offset(offset), size(size)
+	: offset(offset), size(size), id(-1), binary(nullptr), mother_binary(nullptr)
 {
 }
 
 ggtr::FileInfo::FileInfo(const int64_t offset, const int64_t size)
-	: offset(offset), size(size)
+	: id(-1), offset(offset), size(size), binary(nullptr), mother_binary(nullptr)
+{
+}
+
+ggtr::FileInfo::FileInfo(const int64_t id, const int64_t offset, const int64_t size)
+	: id(id), offset(offset), size(size), binary(nullptr)
+{
+}
+
+ggtr::FileInfo::FileInfo(const int64_t id, const int64_t offset, const int64_t size, void * binary)
+	: id(id), offset(offset), size(size), binary(binary), mother_binary(binary)
+{
+}
+
+ggtr::FileInfo::FileInfo(const int64_t id, const int64_t offset, const int64_t size, void * binary, void * mother_binary)
+	: id(id), offset(offset), size(size), binary(binary), mother_binary(mother_binary)
 {
 }
 
 ggtr::FileInfo::FileInfo(const FileInfo & src)
-	: offset(src.offset), size(src.size)
+	: offset(src.offset), size(src.size), id(src.id), binary(src.binary), mother_binary(src.mother_binary)
 {
-}
-
-bool ggtr::FileInfo::operator<(const FileInfo & info) const
-{
-	return offset < info.offset;
 }
 
 FileInfo ggtr::FileInfo::operator=(const FileInfo & src) const
 {
-	return FileInfo(src.offset, src.size);
+	return FileInfo(src.id, src.offset, src.size, src.binary);
 }
 
-void ggtr::FileBinaryList::Dispose()
+const bool ggtr::FileInfo::Dispose()
 {
-	if (_top_address != nullptr)
+	if (mother_binary != nullptr)
 	{
-		free(_top_address);
-		_top_address = nullptr;
+		free(mother_binary);
+		mother_binary = nullptr;
+		return true;
 	}
-}
-
-const FileBinary & ggtr::FileBinaryList::operator[](const int64_t id) const
-{
-	if (id < _length)
-		return _binaries[id];
-	throw new std::exception("Index out of range id < _length");
-}
-
-const int64_t ggtr::FileBinaryList::length() const
-{
-	return _length;
-}
-
-ggtr::FileBinaryList::FileBinaryList(char * memory, const std::vector<char *> & addresses, const std::vector<FileInfo> & infos, const int64_t length, const int64_t memory_size)
-	: _top_address(memory), _length(length), _total_size(memory_size), _binaries()
-{
-	// リストの構築
-	_binaries.reserve(_length);
-	for (int i = 0; i < addresses.size(); ++i)
-	{
-		_binaries.emplace_back(addresses[i], infos[i].size, false);
-	}
-}
-
-const char * const ggtr::FileBinary::ptr() const
-{
-	return _bin;
-}
-
-const int64_t ggtr::FileBinary::size() const
-{
-	return _size;
-}
-
-void ggtr::FileBinary::Dispose()
-{
-	if (_bin != nullptr && _disposable)
-	{
-		free(_bin);
-		_bin = nullptr;
-	}
-}
-
-ggtr::FileBinary::FileBinary(char * bin, const int64_t binsize, const bool disposable)
-	: _bin(bin), _size(binsize)
-{
-}
-
-ggtr::FileBinary::FileBinary()
-	: _size(0), _bin(nullptr), _disposable(false)
-{
+	return false;
 }

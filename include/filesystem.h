@@ -6,85 +6,41 @@
 
 namespace ggtr
 {
+	class FileSystem;
+
 	/**
 	* ファイルの情報
 	*/
 	struct FileInfo
 	{
-		int64_t offset;		//!< 画像ファイルの位置
-		int64_t size;		//!< 画像ファイルの容量
+	public:
+		friend FileSystem;
 
+		int64_t offset;			//!< 画像ファイルの位置
+		int64_t size;			//!< 画像ファイルの容量
+		void * binary;			//!< 画像ファイルのバイナリ
+
+	private:
+		int64_t id;				//!< 配列の内部的な順序
+		void * mother_binary;	//!< 元リソース、Disposeで明示的に解放する
+
+	public:
 		FileInfo();
 		FileInfo(const int64_t offset, const int64_t size);
 		FileInfo(const FileInfo & src);
-
-		// ソートするときコンパイルに失敗する
-		bool operator<(const FileInfo & info) const;
-
+		
 		FileInfo operator =(const FileInfo & src) const;
-	};
-
-	/**
-	* ファイルのバイナリを扱う型
-	*/
-	class FileBinary
-	{
-		int64_t _size;		//!< ファイルの容量
-		char * _bin;		//!< ファイルのバイナリ本体
-		bool _disposable;	//!< freeできるポインタか？
-
-	public:
-		/**
-		* バイナリ本体を返す
-		*/
-		const char * const ptr() const;
 
 		/**
-		* ファイルの容量を返す
+		* リソースを明示的に解放する
+		* @return 解放できた場合はtrue, すでに解放されていたらfalse
 		*/
-		const int64_t size() const;
+		const bool Dispose();
 
-		/**
-		* リソースを解放する
-		*/
-		void Dispose();
-
-		/**
-		* 単にアドレスを保管する
-		*/
-		FileBinary(char * bin, const int64_t binsize, const bool disposable);
-
-		FileBinary();
-	};
-
-	/**
-	* ファイルのバイナリのリスト
-	* 明示的にDisposeしなければリソースは解放されない
-	*/
-	class FileBinaryList
-	{
-		char * _top_address;	//!< バイナリの先頭アドレス
-		int64_t _length;		//!< 要素数
-		int64_t _total_size;	//!< 全体の長さ
-		std::vector<FileBinary> _binaries;	//!< ファイルのポインタ
-
-	public:
-		/**
-		* リソースを解放する
-		*/
-		void Dispose();
-
-		/**
-		* 配列から要素を取ってくる
-		*/
-		const FileBinary & operator[](const int64_t id) const;
-
-		/**
-		* 配列の長さを返す
-		*/
-		const int64_t length() const;
-
-		FileBinaryList(char * memory, const std::vector<char *> & addresses, const std::vector<FileInfo> & infos, const int64_t length, const int64_t memory_size);
+	private:
+		FileInfo(const int64_t id, const int64_t offset, const int64_t size);
+		FileInfo(const int64_t id, const int64_t offset, const int64_t size, void * binary);
+		FileInfo(const int64_t id, const int64_t offset, const int64_t size, void * binary, void * mother_binary);
 	};
 
 	/**
@@ -123,8 +79,8 @@ namespace ggtr
 		int64_t _allocation;	//!< 確保サイズ
 
 		FILE * _fp;				//!< ファイルポインタちゃん
-		void * _buffer;			//!< 読み書きバッファ
-		int64_t _bufsize;		//!< バッファの容量
+		void * _buffer;			//!< ファイルの内部バッファ
+		int64_t _bufsize;		//!< ファイルの内部バッファの容量
 		void * _tempbuf;		//!< 書き込み時に複数ファイルをまとめるための一時領域
 		int64_t _tempsize;		//!< 書き込み時に複数ファイルバッファの容量
 
@@ -139,12 +95,14 @@ namespace ggtr
 		void _ExpandBuffer(const int64_t size);
 		void _ExpandTemp(const int64_t size);
 		int64_t _AllocateBuffer(void * buffer, const int64_t size);
-		const FileInfo _InsertSingle(const char * const binary, const int64_t size);
+
+		static bool _SortId(const FileInfo & a, const FileInfo & b);
+		static bool _SortOffset(const FileInfo & a, const FileInfo & b);
 
 	public:
 		/**
-		* @param dbpath [in] データベースのパス
-		* @param allocation [in] データベースを拡張する単位, バイトなので256MB、512MBなど巨大なほうがいい
+		* @param[in] dbpath データベースのパス
+		* @param[in] allocation データベースを拡張する単位, バイトなので256MB、512MBなど巨大なほうがいい
 		*/
 		FileSystem(const char * const dbpath, const int64_t allocation);
 
@@ -156,20 +114,25 @@ namespace ggtr
 		* 読み込み周りの処理
 		************************************************************************/
 		/**
-		* @return ファイルのバイナリ
+		* @param[inout] info ファイルの情報
+		* @return 確保された領域
 		* @attention 明示的にDisposeを呼び出さないと領域が開放されない
 		*/
-		const FileBinary Query(const FileInfo& info);
-
-		const FileBinaryList Query(const FileInfo * const infos, const int64_t size);
+		void * Query(FileInfo& info);
 
 		/**
-		* @return ファイルのバイナリの配列
+		* 
+		*/
+		void * Query(const FileInfo * const infos, const int64_t size);
+
+		/**
+		* @param[inout] infos ファイルの情報
+		* @return 確保された領域
 		* @attention
 		*	明示的にFileBinaryListのインスタンスからDisposeを呼び出さないと領域が解放されない
 		*	また、個別のインスタンスのDisposeを呼び出しても領域は解放しない
 		*/
-		const FileBinaryList Query(const std::vector<FileInfo> & infos);
+		void * Query(std::vector<FileInfo> & infos);
 
 		/***********************************************************************
 		* 書き込み周りの処理
@@ -212,5 +175,6 @@ namespace ggtr
 		*/
 		const std::string & dbpath() const { return _dbpath; }
 
+		
 	};
 }
